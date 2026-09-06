@@ -2359,7 +2359,7 @@ function defaultSettings() {
             api: {
                 provider: "OpenAI 兼容 (OpenAI/DeepSeek/Qwen/GLM/Kimi/Ollama/vLLM/LM Studio)",
                 model: "deepseek-v4-flash", api_key: "", base_url: "https://api.deepseek.com/v1",
-                temperature: 0.6, max_tokens: 8192, thinking: "disabled",
+                temperature: 0.6, max_tokens: 81920, thinking: "disabled",
             },
             preference: {
                 shot_size: "随机组合", camera_move: "随机组合", cut_rhythm: "随机",
@@ -2621,7 +2621,7 @@ function renderPromptPanel(c, s, d, node) {
     apiBox.append(field("API Key", passwordControl(api.api_key || "", "sk-…（已隐藏）", v => { api.api_key = v; })));
     apiBox.append(field("Base URL", textControl(api.base_url || "https://api.deepseek.com/v1", "https://api.deepseek.com/v1", v => { api.base_url = v; })));
     apiBox.append(field("temperature", numberControl(api.temperature ?? 0.6, { min: 0, max: 2, step: 0.01 }, v => { api.temperature = v; })));
-    apiBox.append(field("max_tokens", numberControl(api.max_tokens ?? 8192, { min: 1, max: 262144, step: 1 }, v => { api.max_tokens = Math.round(v); })));
+    apiBox.append(field("max_tokens", numberControl(api.max_tokens ?? 81920, { min: 1, max: 262144, step: 1 }, v => { api.max_tokens = Math.round(v); })));
     apiBox.append(field("thinking", selectControl(["disabled", "enabled"], api.thinking || "disabled", v => { api.thinking = v; })));
     c.append(apiBox);
 

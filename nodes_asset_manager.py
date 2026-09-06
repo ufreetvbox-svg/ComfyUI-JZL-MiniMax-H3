@@ -243,7 +243,7 @@ MANAGER_DEFAULTS = {
             "api_key": "",
             "base_url": "https://api.deepseek.com/v1",
             "temperature": 0.6,
-            "max_tokens": 8192,
+            "max_tokens": 81920,
             "thinking": "disabled",
         },
         "preference": {

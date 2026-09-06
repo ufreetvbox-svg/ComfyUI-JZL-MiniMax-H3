@@ -158,7 +158,7 @@ async function openSettings(node) {
     const baseUrl = makeInput("text", cache.base_url, "OpenAI 兼容 base_url，留空用默认 https://api.openai.com/v1");
     const temperature = makeInput("number", cache.temperature ?? 0.6, "0.0 ~ 2.0");
     temperature.min = "0"; temperature.max = "2"; temperature.step = "0.01";
-    const maxTokens = makeInput("number", cache.max_tokens ?? 8192, "1 ~ 262144");
+    const maxTokens = makeInput("number", cache.max_tokens ?? 81920, "1 ~ 262144");
     maxTokens.min = "1"; maxTokens.max = "262144"; maxTokens.step = "1";
 
     const thinkingLabel = document.createElement("div");

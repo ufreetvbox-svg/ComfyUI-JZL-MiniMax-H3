@@ -479,7 +479,7 @@ class JZL_MiniMaxAPISettings:
             "api_key": (settings.get("api_key") or "").strip(),
             "base_url": (settings.get("base_url") or "").strip(),
             "temperature": settings.get("temperature", 0.6),
-            "max_tokens": settings.get("max_tokens", 8192),
+            "max_tokens": settings.get("max_tokens", 81920),
             "thinking": settings.get("thinking"),
         }
         return (json.dumps(config, ensure_ascii=False),)
@@ -859,7 +859,7 @@ class JZL_MiniMax_ScriptProcessor:
         api_key = (cfg.get("api_key") or "").strip()
         base_url = (cfg.get("base_url") or "").strip()
         temperature = cfg.get("temperature", 0.6)
-        max_tokens = cfg.get("max_tokens", 8192)
+        max_tokens = cfg.get("max_tokens", 81920)
         thinking = cfg.get("thinking")  # "enabled" / "disabled" / None
         print(f"[JZL-API] 调用 {provider}，模型：{model}")
         messages = [
