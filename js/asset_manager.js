@@ -1573,6 +1573,7 @@ function makeAssetCard(kind, index, item, list, onEdit, onDelete, isLast, refres
     if (kind === "image") {
         imgEl = el("img", "width:100%;height:100%;object-fit:cover;");
         imgEl.alt = "";
+        imgEl.draggable = false;   // 禁止缩略图原生拖拽，避免与手动排序拖拽冲突
         imgEl.onerror = () => { imgEl.style.display = "none"; };
         thumb.append(imgEl);
         thumb.title = "点击查看原图";
@@ -1683,14 +1684,21 @@ function makeAssetCard(kind, index, item, list, onEdit, onDelete, isLast, refres
 
     // 拖放替换：把文件拖到本素材「缩略图」窗口范围 → 仅替换素材文件（保留名称/简介/类型/编号/启用）
     thumb.title = `${thumb.title || "缩略图"}（拖文件到此窗口可替换素材）`;
-    thumb.addEventListener("dragover", (e) => { e.preventDefault(); e.stopPropagation(); try { e.dataTransfer.dropEffect = "copy"; } catch (_) {} thumb.style.borderColor = "#5ecf8a"; });
-    thumb.addEventListener("dragleave", () => { thumb.style.borderColor = ""; });
-    thumb.addEventListener("drop", async (e) => {
+    thumb.addEventListener("dragover", (e) => {
+        const _files = e.dataTransfer && e.dataTransfer.files;
+        if (!_files || !_files.length) return;   // 内部排序拖动：不拦截，交由区块插入式排序处理
         e.preventDefault();
         e.stopPropagation();
+        try { e.dataTransfer.dropEffect = "copy"; } catch (_) {}
+        thumb.style.borderColor = "#5ecf8a";
+    });
+    thumb.addEventListener("dragleave", () => { thumb.style.borderColor = ""; });
+    thumb.addEventListener("drop", async (e) => {
         thumb.style.borderColor = "";
         const files = (e.dataTransfer && e.dataTransfer.files) ? Array.from(e.dataTransfer.files) : [];
-        if (!files.length) return;
+        if (!files.length) return;   // 内部排序拖拽：不 preventDefault / stopPropagation，让 drop 冒泡到区块插入式排序
+        e.preventDefault();
+        e.stopPropagation();
         const file = files[0];
         const fkind = detectAssetKindByFile(file);
         if (fkind !== kind) { notify(`类型不符：缩略图为${KIND_LABEL[kind]}，拖入的是${KIND_LABEL[fkind || "未知"]}`, "warning"); return; }
@@ -1713,35 +1721,120 @@ function renderAssetSection(c, kind, list, title) {
     const fireEdit = () => c.dispatchEvent(new Event("change", { bubbles: true }));
     c.append(makeSectionTitle(title));
     const box = el("div", "");
-    // 拖拽排序：拖动某张卡片放到另一张上即「交换位置」（同一类型内调整顺序）
-    let dragFrom = -1;
-    const wireDrag = (card, i) => {
-        card.draggable = true;
-        card.style.cursor = "grab";
-        card.addEventListener("dragstart", (e) => {
-            dragFrom = i;
-            try { e.dataTransfer.effectAllowed = "move"; e.dataTransfer.setData("text/plain", String(i)); } catch (_) {}
-        });
-        card.addEventListener("dragover", (e) => {
-            e.preventDefault();
-            try { e.dataTransfer.dropEffect = "move"; } catch (_) {}
-        });
-        card.addEventListener("drop", (e) => {
-            // 外部文件拖入（拖拽上传）→ 不拦截，冒泡交给面板统一上传处理
-            if (e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files.length) return;
-            e.preventDefault();
-            e.stopPropagation();
-            if (dragFrom >= 0 && dragFrom !== i && list[dragFrom] && list[i]) {
-                const tmp = list[dragFrom];
-                list[dragFrom] = list[i];
-                list[i] = tmp;
-                dragFrom = -1;
-                renderList();
-                fireEdit();
-            }
-            dragFrom = -1;
-        });
-        card.addEventListener("dragend", () => { dragFrom = -1; });
+    // ── 拖拽排序（插入式）：拖起某素材 → 该卡片淡蓝高亮；拖到任意两素材之间 → 出现虚线占位框（与素材栏等大）→ 松开即插入 ──
+    let dragFrom = -1;       // 被拖素材原 index
+    let dropIndex = -1;      // 插入位置（0..len，相对当前 list）
+    let dragEl = null;       // 被拖卡片元素
+    let ghost = null;        // 虚线占位框
+    let floatEl = null;      // 跟随鼠标的被拖素材浮动克隆（拖拽时可见）
+    let _down = false;       // 卡片上已按下（潜在拖拽）
+    let _drag = false;       // 移动超阈值，进入拖拽
+    let _sx = 0, _sy = 0;    // 按下起点
+    const _cards = () => Array.from(box.querySelectorAll(".jzl-asset-card"));
+    const clearDrag = () => {
+        dragFrom = -1;
+        dropIndex = -1;
+        if (dragEl) { try { dragEl.style.background = ""; dragEl.style.opacity = ""; } catch (_) {} dragEl = null; }
+        if (ghost) { try { ghost.remove(); } catch (_) {} ghost = null; }
+        if (floatEl) { try { floatEl.remove(); } catch (_) {} floatEl = null; }
+    };
+    const placeGhost = (clientY) => {
+        if (ghost) { ghost.remove(); ghost = null; }
+        const cs = _cards();
+        let idx = cs.length;
+        for (let k = 0; k < cs.length; k++) {
+            const r = cs[k].getBoundingClientRect();
+            if (clientY < r.top + r.height / 2) { idx = k; break; }
+        }
+        const h = (cs[0] && cs[0].offsetHeight > 0) ? cs[0].offsetHeight : 46;
+        ghost = el("div", `height:${h}px;border:2px dashed #5b9bd5;border-radius:6px;margin:4px 0;box-sizing:border-box;background:rgba(91,155,213,.12);`);
+        ghost.style.pointerEvents = "none";
+        const ref = cs[idx];
+        if (ref) box.insertBefore(ghost, ref);
+        else box.insertBefore(ghost, box.querySelector(".jzl-asset-add") || null);
+        dropIndex = idx;
+    };
+    // ── 排序用手动鼠标事件（HTML5 DnD 的 drop 在「面板上传/缩略图替换」多层 dragover/drop 干扰下不派发，弃用）──
+    const cardDown = (e, i, card) => {
+        if (e.button !== 0) return;
+        const t = e.target;
+        if (t && t.closest && t.closest("input,select,button,textarea")) return;  // 控件交互，不拖拽
+        _down = true;
+        _drag = false;
+        dragFrom = i;
+        dragEl = card;
+        _sx = e.clientX;
+        _sy = e.clientY;
+        document.addEventListener("mousemove", onDocMove);
+        document.addEventListener("mouseup", onDocUp);
+    };
+    // 浮动克隆：把被拖素材卡克隆一份跟随鼠标（半透明+阴影），解决拖拽时看不到素材、只见虚线框
+    const ensureFloat = (e) => {
+        if (!floatEl && dragEl) {
+            floatEl = dragEl.cloneNode(true);
+            floatEl.style.position = "fixed";
+            floatEl.style.zIndex = "99999";
+            floatEl.style.pointerEvents = "none";
+            floatEl.style.opacity = "0.85";
+            floatEl.style.boxShadow = "0 10px 28px rgba(0,0,0,.5)";
+            floatEl.style.transform = "scale(1.02)";
+            floatEl.style.width = dragEl.offsetWidth ? dragEl.offsetWidth + "px" : "auto";
+            floatEl.style.cursor = "grabbing";
+            floatEl.style.background = "var(--comfy-menu-bg,#232323)";
+            // 浮动克隆里的控件禁用交互（防误触/样式跳动），input/select 只读外观保持
+            floatEl.querySelectorAll("input,select,button,textarea").forEach((elc) => { elc.disabled = true; });
+            document.body.appendChild(floatEl);
+        }
+        if (floatEl) {
+            floatEl.style.left = (e.clientX + 14) + "px";
+            floatEl.style.top = (e.clientY + 12) + "px";
+        }
+    };
+    const onDocMove = (e) => {
+        if (!_down) return;
+        if (!_drag) {
+            if (Math.abs(e.clientX - _sx) < 5 && Math.abs(e.clientY - _sy) < 5) return;  // 阈值内=点击
+            _drag = true;
+            if (dragEl) { try { dragEl.style.background = "#3f6fa8"; dragEl.style.opacity = "0.55"; } catch (_) {} }
+        }
+        if (e.cancelable) e.preventDefault();
+        // 拖到容器边缘自动滚动（c = 滚动容器）
+        try {
+            const r = c.getBoundingClientRect();
+            if (e.clientY < r.top + 40) c.scrollTop -= 16;
+            else if (e.clientY > r.bottom - 40) c.scrollTop += 16;
+        } catch (_) {}
+        ensureFloat(e);
+        placeGhost(e.clientY);
+    };
+    const onDocUp = (e) => {
+        document.removeEventListener("mousemove", onDocMove);
+        document.removeEventListener("mouseup", onDocUp);
+        if (!_down) return;
+        _down = false;
+        if (_drag && dragFrom >= 0) {
+            let inside = true;
+            try {
+                const r = box.getBoundingClientRect();
+                inside = e.clientX >= r.left && e.clientX <= r.right && e.clientY >= r.top && e.clientY <= r.bottom;
+            } catch (_) {}
+            if (inside && dropIndex >= 0) commitMove();
+            else clearDrag();
+        } else {
+            clearDrag();
+        }
+        _drag = false;
+    };
+    const commitMove = () => {
+        if (dragFrom < 0) return;
+        let to = (dropIndex >= 0) ? dropIndex : list.length;
+        if (dragFrom < to) to = to - 1;
+        const moved = list.splice(dragFrom, 1)[0];
+        if (to > list.length) to = list.length;
+        list.splice(to, 0, moved);
+        clearDrag();
+        renderList();
+        fireEdit();
     };
     const renderList = () => {
         box.innerHTML = "";
@@ -1752,10 +1845,17 @@ function renderAssetSection(c, kind, list, title) {
                 renderList();
                 fireEdit();
             }, isLast, renderList);
-            wireDrag(card, i);
+            card.classList.add("jzl-asset-card");
+            card.style.cursor = "grab";
+            // 行首拖拽把手（明确按住此区排序，避免误触控件）
+            const hdl = el("span", "flex:0 0 18px;text-align:center;color:#7a8ba0;font-size:13px;cursor:grab;user-select:none;flex-shrink:0;", "⠿");
+            hdl.title = "按住拖动排序";
+            card.prepend(hdl);
+            card.addEventListener("mousedown", (e) => cardDown(e, i, card));
             box.append(card);
         });
         const addBtn = el("button", "margin-top:4px;width:100%;padding:6px;background:#2a3a4a;color:#9fc3e8;border:1px dashed #5b9bd5;border-radius:6px;font-size:12px;cursor:pointer;", `+ 添加${KIND_LABEL[kind]}`);
+        addBtn.classList.add("jzl-asset-add");
         addBtn.addEventListener("click", () => {
             list.push({ type: (ASSET_TYPES_BY_KIND[kind] || ASSET_TYPES)[0], name: "", path: "", enabled: true, letter: "" });
             renderList();
